@@ -1,4 +1,7 @@
 import asyncio
+import os
+import subprocess
+import sys
 import urllib.parse
 from telegram_bot import TelegramBot
 from config import TELEGRAM_USER_IDS
@@ -122,6 +125,43 @@ def _format_links_text(query: str) -> str:
     return "\n".join(lines)
 
 
+async def handle_callback(bot: TelegramBot, callback: dict):
+    chat_id = callback["message"]["chat"]["id"]
+    user_id = callback.get("from", {}).get("id", 0)
+    data = callback.get("data", "")
+    cb_id = callback["id"]
+
+    if not _auth(user_id):
+        return
+
+    await bot.answer_callback(cb_id)
+
+    if data == "/hot":
+        cat_key = None
+        await handle_hot_products(bot, chat_id, cat_key)
+    elif data.startswith("buy:"):
+        query = data.split(":", 1)[1]
+        await bot.send_typing(chat_id)
+        products = await asyncio.to_thread(search_divar_products, query, "tehran", 10)
+        resp = f"📦 فروشندگان «{query}» از دیوار:\n"
+        resp += _format_sellers(products, max_products=8)
+        resp += "\n" + _format_links_text(query)
+        await bot.send_message(chat_id, resp)
+    elif data.startswith("cat:"):
+        cat_key = data.split(":", 1)[1]
+        await handle_hot_products(bot, chat_id, cat_key)
+    elif data.startswith("reg:"):
+        query = data.split(":", 1)[1]
+        await handle_message(bot, {"chat": {"id": chat_id}, "from": {"id": user_id}, "text": f"/regions {query}"})
+    elif data.startswith("arb:"):
+        query = data.split(":", 1)[1]
+        await handle_message(bot, {"chat": {"id": chat_id}, "from": {"id": user_id}, "text": f"/arb {query}"})
+    elif data == "/restart":
+        await handle_message(bot, {"chat": {"id": chat_id}, "from": {"id": user_id}, "text": "/restart"})
+    elif data == "/status":
+        await handle_message(bot, {"chat": {"id": chat_id}, "from": {"id": user_id}, "text": "/status"})
+
+
 async def handle_message(bot: TelegramBot, msg: dict):
     chat_id = msg["chat"]["id"]
     user_id = msg.get("from", {}).get("id", 0)
@@ -130,7 +170,34 @@ async def handle_message(bot: TelegramBot, msg: dict):
     if not _auth(user_id):
         return
 
-    if text.startswith("/start"):
+    if text.startswith("/restart"):
+        await bot.send_message(chat_id, "🔄 ربات در حال ریستارت...")
+        await bot.close()
+        python = sys.executable
+        args = [python, "main.py"]
+        subprocess.Popen(
+            args,
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        os._exit(0)
+
+    elif text.startswith("/status"):
+        await bot.send_message(chat_id, "✅ ربات فعال است و polling انجام می‌دهد.")
+
+    elif text.startswith("/start"):
+        kb = {
+            "inline_keyboard": [
+                [{"text": "🔥 کالاهای پرتقاضا", "callback_data": "/hot"}],
+                [{"text": "💻 لپ‌تاپ", "callback_data": "buy:لپ‌تاپ"},
+                 {"text": "📱 موبایل", "callback_data": "buy:موبایل"}],
+                [{"text": "🏠 لوازم خانگی", "callback_data": "cat:کالای خانگی"}],
+                [{"text": "🌍 خریداران کردستان/خلیج", "callback_data": "reg:لپ‌تاپ"}],
+                [{"text": "💰 تحلیل آربیتراژ", "callback_data": "arb:لپ‌تاپ"}],
+                [{"text": "🔄 ریستارت", "callback_data": "/restart"},
+                 {"text": "📡 وضعیت", "callback_data": "/status"}],
+            ]
+        }
         await bot.send_message(chat_id,
             "🤖 ربات آربیتراژ ایران ↔ عراق/خلیج\n\n"
             "📋 دستورات:\n\n"
@@ -142,11 +209,8 @@ async def handle_message(bot: TelegramBot, msg: dict):
             "🌍 /regions لپتاپ - خریداران کردستان + خلیج + بین‌الملل\n\n"
             "📊 /arb لپتاپ - تحلیل آربیتراژ (اختلاف قیمت)\n"
             "🔗 /links لپتاپ - همه لینک‌ها\n\n"
-            "💡 نمونه:\n"
-            "/hot\n"
-            "/cheap لپتاپ\n"
-            "/buyers آیفون\n"
-            "/regions تبلت"
+            "👇 یا از دکمه‌های زیر استفاده کن:",
+            reply_markup=kb,
         )
         return
 

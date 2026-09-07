@@ -7,7 +7,7 @@ if sys.platform == "win32":
 
 from config import TELEGRAM_BOT_TOKEN
 from telegram_bot import TelegramBot
-from bot import handle_message
+from bot import handle_message, handle_callback
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,6 +38,12 @@ async def main():
                         await handle_message(bot, msg)
                     except Exception as e:
                         logger.error("handle error: %s", e, exc_info=True)
+                callback = update.get("callback_query")
+                if callback:
+                    try:
+                        await handle_callback(bot, callback)
+                    except Exception as e:
+                        logger.error("callback error: %s", e, exc_info=True)
     except KeyboardInterrupt:
         logger.info("Bot carpet shod.")
     finally:

@@ -45,7 +45,7 @@ class TelegramBot:
                 params={
                     "offset": self.offset,
                     "timeout": timeout,
-                    "allowed_updates": '["message"]',
+                    "allowed_updates": '["message","callback_query"]',
                 },
             )
             data = resp.json()
@@ -66,17 +66,32 @@ class TelegramBot:
             logger.error("get_updates error: %s", e)
             return []
 
-    async def send_message(self, chat_id: int, text: str, disable_preview: bool = True):
+    async def answer_callback(self, callback_id: str, text: str | None = None, show_alert: bool = False):
+        try:
+            payload = {"callback_query_id": callback_id}
+            if text:
+                payload["text"] = text
+            if show_alert:
+                payload["show_alert"] = True
+            await self.client.post(f"{self.url}/answerCallbackQuery", json=payload)
+        except Exception as e:
+            logger.error("answer_callback error: %s", e)
+
+    async def send_message(self, chat_id: int, text: str, disable_preview: bool = True, reply_markup: dict | None = None):
         try:
             chunks = self._split(text, 4000)
+            last_chunk = chunks[-1]
             for chunk in chunks:
+                payload = {
+                    "chat_id": chat_id,
+                    "text": chunk,
+                    "disable_web_page_preview": disable_preview,
+                }
+                if chunk is last_chunk and reply_markup:
+                    payload["reply_markup"] = reply_markup
                 resp = await self.client.post(
                     f"{self.url}/sendMessage",
-                    json={
-                        "chat_id": chat_id,
-                        "text": chunk,
-                        "disable_web_page_preview": disable_preview,
-                    },
+                    json=payload,
                 )
                 if resp.status_code != 200:
                     logger.error("sendMessage failed: %s", resp.text[:200])
